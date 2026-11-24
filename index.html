@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>HL Panel</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #0f1115);
+    --bg2: var(--tg-theme-secondary-bg-color, #1a1d24);
+    --tx: var(--tg-theme-text-color, #f2f3f5);
+    --tx2: var(--tg-theme-hint-color, #8b919c);
+    --ac: var(--tg-theme-button-color, #2f80ed);
+    --actx: var(--tg-theme-button-text-color, #fff);
+    --rec: #e5484d;
+    --ok: #30a46c;
+    --r: 14px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--tx);
+    font: 16px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { padding: 12px 16px 28px; max-width: 520px; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; align-items: baseline; margin: 2px 0 12px; }
+  header h1 { font-size: 20px; margin: 0; }
+  header small { color: var(--tx2); }
+  .card { background: var(--bg2); border-radius: var(--r); padding: 14px; margin-bottom: 12px; }
+  .card.rec { box-shadow: inset 0 0 0 2px var(--rec); }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .row.between { justify-content: space-between; }
+  .tag { font-size: 13px; font-weight: 600; padding: 3px 9px; border-radius: 99px; background: var(--bg); color: var(--tx2); }
+  .tag.rec { background: var(--rec); color: #fff; }
+  .tag.rec::before { content: "● "; animation: blink 1.2s infinite; }
+  @keyframes blink { 50% { opacity: .3; } }
+  .titulo { font-size: 18px; font-weight: 650; margin: 8px 0 2px; }
+  .sub { color: var(--tx2); font-size: 14px; }
+  .btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+  button { font: inherit; border: 0; border-radius: 12px; padding: 12px 6px; min-height: 52px;
+    background: var(--bg); color: var(--tx); font-size: 14px; font-weight: 600; cursor: pointer; }
+  button .ic { display: block; font-size: 20px; line-height: 1.1; margin-bottom: 2px; }
+  button.prim { background: var(--ac); color: var(--actx); }
+  button.peligro { background: var(--rec); color: #fff; }
+  button:active { transform: scale(.97); }
+  .grande { width: 100%; margin-top: 12px; font-size: 16px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--tx2); margin: 18px 4px 8px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chips button { flex: 1 1 calc(50% - 8px); min-height: 46px; text-align: left; padding: 10px 12px; }
+  .chips.dur button { flex: 1 1 calc(33% - 8px); text-align: center; }
+  .chips button.sel { box-shadow: inset 0 0 0 2px var(--ac); }
+  .ag { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0;
+    border-top: 1px solid color-mix(in srgb, var(--tx2) 20%, transparent); }
+  .ag:first-child { border-top: 0; }
+  .ag button { min-height: 40px; padding: 8px 12px; flex: none; }
+  .vacio { color: var(--tx2); font-size: 14px; }
+  .oculto { display: none; }
+  .aviso { color: var(--tx2); font-size: 13px; text-align: center; margin-top: 18px; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  #b-estado, #b-equipo { background: var(--bg2); }
+</style>
+</head>
+<body>
+<main>
+  <header><h1 id="eq">HL Casero</h1><small id="hora"></small></header>
+  <div id="senales"></div>
+
+  <section id="grabar" class="card oculto">
+    <div class="row between"><b>⏺ Grabar</b><span class="sub" id="g-sub"></span></div>
+    <h2>Señal</h2>
+    <div class="seg" id="g-senal"></div>
+    <h2>Canal</h2>
+    <div class="chips" id="g-canales"></div>
+    <h2>¿Cuánto?</h2>
+    <div class="chips dur" id="g-dur"></div>
+  </section>
+
+  <h2>📅 Agenda</h2>
+  <div class="card" id="agenda"></div>
+
+  <div class="seg">
+    <button id="b-estado"><span class="ic">🔄</span>Actualizar</button>
+    <button id="b-equipo"><span class="ic">🖥</span><span id="b-equipo-tx">Pasar</span></button>
+  </div>
+  <p class="aviso" id="aviso"></p>
+</main>
+<script>
+(function () {
+  const tg = window.Telegram && Telegram.WebApp;
+  if (tg) { tg.ready(); tg.expand(); }
+
+  // estado que manda el bot en la dirección: #d=<base64url(json)>
+  function leer() {
+    const m = location.hash.match(/d=([A-Za-z0-9_-]+)/);
+    if (!m) return null;
+    try {
+      const b = atob(m[1].replace(/-/g, "+").replace(/_/g, "/"));
+      const bytes = Uint8Array.from(b, c => c.charCodeAt(0));
+      return JSON.parse(new TextDecoder().decode(bytes));
+    } catch (e) { return null; }
+  }
+  const D = leer() || { eq: "HL Casero", t: "", s: [{ n: 1, g: 0, c: "" }, { n: 2, g: 0, c: "" }], ca: [], ag: [], eqs: [] };
+
+  function vibrar(t) { try { tg.HapticFeedback.impactOccurred(t || "light"); } catch (e) {} }
+  function mandar(obj) {
+    vibrar("medium");
+    const s = JSON.stringify(obj);
+    if (tg && tg.initData !== undefined && tg.sendData) {
+      try { tg.sendData(s); return; } catch (e) {}
+    }
+    document.getElementById("aviso").textContent = "Mandaría: " + s + " (abrilo desde el botón 🎛 Panel del bot)";
+  }
+  function confirmar(texto, si) {
+    if (tg && tg.showConfirm && tg.platform !== "unknown") tg.showConfirm(texto, ok => ok && si());
+    else if (window.confirm(texto)) si();
+  }
+  function el(tag, attrs, ...hijos) {
+    const e = document.createElement(tag);
+    for (const k in attrs || {}) {
+      if (k === "on") e.addEventListener("click", attrs.on);
+      else if (k === "cls") e.className = attrs.cls;
+      else e.setAttribute(k, attrs[k]);
+    }
+    for (const h of hijos) e.append(h && h.nodeType ? h : document.createTextNode(h == null ? "" : h));
+    return e;
+  }
+  function boton(ic, tx, on, cls) { return el("button", { on, cls: cls || "" }, el("span", { cls: "ic" }, ic), tx); }
+
+  document.getElementById("eq").textContent = "🖥 " + (D.eq || "HL Casero");
+  document.getElementById("hora").textContent = D.t ? "estado de las " + D.t : "";
+
+  // ---- tarjetas de señal
+  const cont = document.getElementById("senales");
+  let gSenal = 1, gCanal = null;
+  for (const s of D.s || []) {
+    const grabando = !!s.g;
+    const card = el("div", { cls: "card" + (grabando ? " rec" : "") });
+    card.append(el("div", { cls: "row between" },
+      el("b", {}, "Señal " + s.n),
+      el("span", { cls: "tag" + (grabando ? " rec" : "") }, grabando ? "GRABANDO" : (s.x ? "CERRADA" : "EN ESPERA"))));
+    card.append(el("div", { cls: "titulo" }, grabando ? (s.p || s.c) : (s.c || "—")));
+    card.append(el("div", { cls: "sub" }, grabando ? [s.d, s.f].filter(Boolean).join(" · ") : (s.x ? "Panel cerrado" : "Lista para grabar")));
+    const b = el("div", { cls: "btns" });
+    if (grabando) {
+      b.append(
+        boton("⏹", "Detener", () => confirmar("¿Detengo la grabación de la Señal " + s.n + "?", () => mandar({ a: "detener", s: s.n })), "peligro"),
+        boton("✂", "Clip", () => abrirClip(card, s.n)),
+        boton("📸", "Foto", () => mandar({ a: "foto", s: s.n })),
+        boton("☁", "Drive", () => mandar({ a: "nube", s: s.n })));
+    } else {
+      b.style.gridTemplateColumns = "2fr 1fr";
+      b.append(
+        boton("⏺", "Grabar acá", () => abrirGrabar(s.n), "prim"),
+        boton("📸", "Foto", () => mandar({ a: "foto", s: s.n })));
+    }
+    card.append(b);
+    cont.append(card);
+  }
+
+  function abrirClip(card, n) {
+    let fila = card.querySelector(".clips");
+    if (fila) { fila.remove(); return; }
+    fila = el("div", { cls: "btns clips" });
+    for (const [sg, tx] of [[30, "30 s"], [60, "1 min"], [120, "2 min"], [300, "5 min"]])
+      fila.append(boton("✂", tx, () => mandar({ a: "clip", s: n, sg })));
+    card.append(fila);
+    vibrar();
+  }
+
+  // ---- grabar: señal, canal y duración
+  const secG = document.getElementById("grabar");
+  function abrirGrabar(n) {
+    gSenal = n;
+    gCanal = D.ca && D.ca.length ? (Math.max(0, D.ca.indexOf(D.cs)) ) : null;
+    pintarGrabar();
+    secG.classList.remove("oculto");
+    secG.scrollIntoView({ behavior: "smooth", block: "start" });
+    vibrar();
+  }
+  function pintarGrabar() {
+    const ss = document.getElementById("g-senal"); ss.innerHTML = "";
+    for (const n of [1, 2]) {
+      const ocup = (D.s || []).some(s => s.n === n && s.g);
+      ss.append(el("button", { cls: n === gSenal ? "sel prim" : "", on: () => { gSenal = n; pintarGrabar(); } },
+        "Señal " + n + (ocup ? " (ocupada)" : "")));
+    }
+    const cc = document.getElementById("g-canales"); cc.innerHTML = "";
+    (D.ca || []).forEach((c, i) => cc.append(el("button", { cls: i === gCanal ? "sel" : "", on: () => { gCanal = i; pintarGrabar(); } }, c)));
+    if (!(D.ca || []).length) cc.append(el("div", { cls: "vacio" }, "No llegaron los canales. Tocá Actualizar."));
+    const dd = document.getElementById("g-dur"); dd.innerHTML = "";
+    for (const [m, tx] of [[0, "Sin límite"], [60, "1 h"], [90, "1 h 30"], [120, "2 h"], [150, "2 h 30"], [180, "3 h"]])
+      dd.append(el("button", { cls: m === 0 ? "prim" : "", on: () => {
+        if (gCanal == null) { vibrar("heavy"); return; }
+        mandar({ a: "grabar", s: gSenal, c: gCanal, m });
+      } }, tx));
+    document.getElementById("g-sub").textContent = gCanal != null ? (D.ca[gCanal] + " · Señal " + gSenal) : "Elegí un canal";
+  }
+
+  // ---- agenda
+  const ag = document.getElementById("agenda");
+  if (!(D.ag || []).length) ag.append(el("div", { cls: "vacio" }, "No hay nada agendado. Mandale el PDF de programación al bot."));
+  for (const [k, cuando, nombre, canal, s] of D.ag || []) {
+    ag.append(el("div", { cls: "ag" },
+      el("div", {}, el("div", {}, el("b", {}, cuando), " · S" + s), el("div", { cls: "sub" }, nombre + " (" + canal + ")")),
+      el("button", { on: () => confirmar("¿Saco de la agenda " + cuando + " " + nombre + "?", () => mandar({ a: "borrar", k })) }, "🗑")));
+  }
+
+  // ---- abajo
+  document.getElementById("b-estado").addEventListener("click", () => mandar({ a: "estado" }));
+  const otro = (D.eqs || ["Mac", "PC"]).find(e => e !== D.eq) || "otra compu";
+  document.getElementById("b-equipo-tx").textContent = "Pasar a " + otro;
+  document.getElementById("b-equipo").addEventListener("click", () =>
+    confirmar("¿Paso el control a " + otro + "? Tiene que tener HL Casero abierto.", () => mandar({ a: "equipo", e: otro })));
+})();
+</script>
+</body>
+</html>
